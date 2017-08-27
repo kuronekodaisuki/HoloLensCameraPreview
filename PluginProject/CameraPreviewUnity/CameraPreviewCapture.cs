@@ -6,35 +6,51 @@ using System.Threading.Tasks;
 
 namespace CameraPreview
 {
-    public delegate void OnCameraPreviewCreatedCallback(CameraPreviewCapture captureObject);
-    public delegate void OnFrameArrivedCallback();
+    public delegate void OnVideoCaptureResourceCreatedCallback(VideoCapture captureObject);
+    public delegate void OnVideoModeStartedCallback(VideoCaptureResult result);
+    public delegate void FrameSampleAcquiredCallback(VideoCaptureSample videoCaptureSample);
+    public delegate void OnVideoModeStoppedCallback(VideoCaptureResult result);
 
-    public class CameraPreviewCapture
+    public sealed class VideoCapture
     {
-        public event OnFrameArrivedCallback FrameArrived;
-        public bool IsStreamin => false;
 
-        public static async Task CreateInstanceAsync(OnCameraPreviewCreatedCallback onCreatedCallback)
+#pragma warning disable 067
+        public event FrameSampleAcquiredCallback FrameSampleAcquired;
+#pragma warning restore 067
+
+        public bool IsStreaming {
+            get {
+                throw new NotImplementedException();
+            }
+        }
+
+
+        public static void CreateAync(OnVideoCaptureResourceCreatedCallback onCreatedCallback)
         {
             throw new NotImplementedException();
         }
 
-        public async Task<bool> StartCameraPreviewCapture(bool IsCapturedHologram)
+        public IEnumerable<Resolution> GetSupportedResolutions()
         {
             throw new NotImplementedException();
         }
 
-        public async Task<bool> StopVideoModeAsync()
+        public IEnumerable<float> GetSupportedFrameRatesForResolution(Resolution resolution)
         {
             throw new NotImplementedException();
         }
 
-        public async Task Dispose()
+        public void StartVideoModeAsync(CameraParameters setupParams, OnVideoModeStartedCallback onVideoModeStartedCallback)
         {
             throw new NotImplementedException();
         }
 
-        public void CopyFrameToBuffer(byte[] buffer)
+        public void StopVideoModeAsync(OnVideoModeStoppedCallback onVideoModeStoppedCallback)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Dispose()
         {
             throw new NotImplementedException();
         }
