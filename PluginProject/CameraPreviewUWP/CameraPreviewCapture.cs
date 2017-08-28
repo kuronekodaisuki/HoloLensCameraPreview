@@ -33,23 +33,27 @@ namespace CameraPreview
         static readonly MediaStreamType STREAM_TYPE = MediaStreamType.VideoPreview;
         static readonly Guid ROTATION_KEY = new Guid("C380465D-2271-428C-9B83-ECEA3B4A85C1");
 
-        MediaFrameSourceGroup _frameSourceGroup;
+        // MediaFrameSourceGroup _frameSourceGroup;
         MediaFrameSourceInfo _frameSourceInfo;
-        DeviceInformation _deviceInfo;
+        // DeviceInformation _deviceInfo;
         MediaCapture _mediaCapture;
         MediaFrameReader _frameReader;
 
-        CameraPreviewCapture(MediaFrameSourceGroup frameSourceGroup, MediaFrameSourceInfo frameSourceInfo, DeviceInformation deviceInfo)
+        CameraPreviewCapture(MediaFrameSourceInfo frameSourceInfo)
         {
-            _frameSourceGroup = frameSourceGroup;
             _frameSourceInfo = frameSourceInfo;
-            _deviceInfo = deviceInfo;
         }
 
         public static async void CreateAync(OnVideoCaptureResourceCreatedCallback onCreatedCallback)
         {
             var allFrameSourceGroups = await MediaFrameSourceGroup.FindAllAsync();                                              //Returns IReadOnlyList<MediaFrameSourceGroup>
-            var candidateFrameSourceGroups = allFrameSourceGroups.Where(group => group.SourceInfos.Any(IsColorVideo));   //Returns IEnumerable<MediaFrameSourceGroup>
+            var candidateFrameSourceGroups = allFrameSourceGroups.Where(group =>
+                group.SourceInfos.Any(sourceInfo => 
+                    sourceInfo.MediaStreamType == MediaStreamType.VideoPreview && 
+                    sourceInfo.SourceKind == MediaFrameSourceKind.Color
+                )
+            );   //Returns IEnumerable<MediaFrameSourceGroup>
+
             var selectedFrameSourceGroup = candidateFrameSourceGroups.FirstOrDefault();                                         //Returns a single MediaFrameSourceGroup
 
             if (selectedFrameSourceGroup == null)
@@ -71,14 +75,20 @@ namespace CameraPreview
 
             if (deviceInformation == null)
             {
-                onCreatedCallback(null);
+                onCreatedCallback?.Invoke(null);
                 return;
             }
 
-            var videoCapture = new CameraPreviewCapture(selectedFrameSourceGroup, selectedFrameSourceInfo, deviceInformation);
-            await videoCapture.CreateMediaCaptureAsync();
-
-            onCreatedCallback?.Invoke(videoCapture);
+            var videoCapture = new CameraPreviewCapture(selectedFrameSourceInfo);
+   
+            var result = await videoCapture.CreateMediaCaptureAsync(selectedFrameSourceGroup, deviceInformation);
+            if (result)
+            {
+                onCreatedCallback?.Invoke(videoCapture);
+            } else
+            {
+                onCreatedCallback?.Invoke(null);
+            }
         }
 
         public IEnumerable<Resolution> GetSupportedResolutions()
@@ -126,7 +136,7 @@ namespace CameraPreview
             return frameRates.AsReadOnly();
         }
 
-        async Task CreateMediaCaptureAsync()
+        async Task<bool> CreateMediaCaptureAsync(MediaFrameSourceGroup _frameSourceGroup, DeviceInformation _deviceInfo)
         {
             if (_mediaCapture != null)
             {
@@ -134,44 +144,64 @@ namespace CameraPreview
             }
 
             _mediaCapture = new MediaCapture();
-            await _mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings()
+
+            var settings = new MediaCaptureInitializationSettings()
             {
                 VideoDeviceId = _deviceInfo.Id,
                 SourceGroup = _frameSourceGroup,
                 MemoryPreference = MediaCaptureMemoryPreference.Cpu, //TODO: Should this be the other option, Auto? GPU is not an option.
                 StreamingCaptureMode = StreamingCaptureMode.Video
-            });
-            _mediaCapture.VideoDeviceController.Focus.TrySetAuto(true);
+            };
 
-            // _rotationHelper = new CameraRotationHelper(_deviceInfo.EnclosureLocation);
-            // _rotationHelper.OrientationChanged += RotationHelper_OrientationChanged;
-
-
+            try
+            {
+                await _mediaCapture.InitializeAsync(settings);
+                _mediaCapture.VideoDeviceController.Focus.TrySetAuto(true);
+                return true;
+            } catch(Exception ex)
+            {
+                _mediaCapture.Dispose();
+                _mediaCapture = null;
+                return false;
+            }
         }
 
-        public async void StartVideoModeAsync(CameraParameters setupParams, OnVideoModeStartedCallback onVideoModeStartedCallback)
+        public async void StartVideoModeAsync(bool IsCapturedHologram)
         {
             var mediaFrameSource = _mediaCapture.FrameSources[_frameSourceInfo.Id]; //Returns a MediaFrameSource
 
             if (mediaFrameSource == null)
             {
-                onVideoModeStartedCallback?.Invoke(new VideoCaptureResult(1, ResultType.UnknownError, false));
                 return;
             }
 
-            var pixelFormat = ConvertCapturePixelFormatToMediaEncodingSubtype(setupParams.pixelFormat);
+            var pixelFormat= MediaEncodingSubtypes.Bgra8;
+
             _frameReader = await _mediaCapture.CreateFrameReaderAsync(mediaFrameSource, pixelFormat);
+
             _frameReader.FrameArrived += HandleFrameArrived;
-            await _frameReader.StartAsync();
-            VideoEncodingProperties properties = GetVideoEncodingPropertiesForCameraParams(setupParams);
+
+            var result = await _frameReader.StartAsync();
+
+            var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(MediaStreamType.VideoPreview)
+                .Select(x => x as VideoEncodingProperties)
+                .Where(x =>
+                {
+                    if (x == null) return false;
+                    if (x.FrameRate.Denominator == 0) return false;
+
+                    double frameRate = (double)x.FrameRate.Numerator / (double)x.FrameRate.Denominator;
+
+                    return x.Width == 896 && x.Height == 504 && (int)Math.Round(frameRate) == 30;
+                });
+
+            VideoEncodingProperties properties = allPropertySets.FirstOrDefault();
 
             //	gr: taken from here https://forums.hololens.com/discussion/2009/mixedrealitycapture
-            IVideoEffectDefinition ved = new VideoMRCSettings(setupParams.enableHolograms, setupParams.enableVideoStabilization, setupParams.videoStabilizationBufferSize, setupParams.hologramOpacity);
+            IVideoEffectDefinition ved = new VideoMRCSettings(IsCapturedHologram, false, 0, 0.0f);
             await _mediaCapture.AddVideoEffectAsync(ved, MediaStreamType.VideoPreview);
-
             await _mediaCapture.VideoDeviceController.SetMediaStreamPropertiesAsync(STREAM_TYPE, properties);
 
-            onVideoModeStartedCallback?.Invoke(new VideoCaptureResult(0, ResultType.Success, true));
         }
 
         public async void StopVideoModeAsync(OnVideoModeStoppedCallback onVideoModeStoppedCallback)
@@ -257,13 +287,6 @@ namespace CameraPreview
                 default:
                     return MediaEncodingSubtypes.Bgra8;
             }
-        }
-
-        static bool IsColorVideo(MediaFrameSourceInfo sourceInfo)
-        {
-            //TODO: Determine whether 'VideoPreview' or 'VideoRecord' is the appropriate type. What's the difference?
-            return (sourceInfo.MediaStreamType == STREAM_TYPE &&
-                sourceInfo.SourceKind == MediaFrameSourceKind.Color);
         }
     }
 

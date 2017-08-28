@@ -6,12 +6,12 @@ using System.Threading.Tasks;
 
 namespace CameraPreview
 {
-    public delegate void OnVideoCaptureResourceCreatedCallback(VideoCapture captureObject);
+    public delegate void OnVideoCaptureResourceCreatedCallback(CameraPreviewCapture captureObject);
     public delegate void OnVideoModeStartedCallback(VideoCaptureResult result);
     public delegate void FrameSampleAcquiredCallback(VideoCaptureSample videoCaptureSample);
     public delegate void OnVideoModeStoppedCallback(VideoCaptureResult result);
 
-    public sealed class VideoCapture
+    public sealed class CameraPreviewCapture
     {
 
 #pragma warning disable 067
@@ -40,7 +40,7 @@ namespace CameraPreview
             throw new NotImplementedException();
         }
 
-        public void StartVideoModeAsync(CameraParameters setupParams, OnVideoModeStartedCallback onVideoModeStartedCallback)
+        public void StartVideoModeAsync(bool IsCapturedHologram)
         {
             throw new NotImplementedException();
         }
