@@ -1,21 +1,16 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace CameraPreview
 {
-    public delegate void OnVideoCaptureResourceCreatedCallback(CameraPreviewCapture captureObject);
-    public delegate void OnVideoModeStartedCallback(VideoCaptureResult result);
-    public delegate void FrameSampleAcquiredCallback(VideoCaptureSample videoCaptureSample);
-    public delegate void OnVideoModeStoppedCallback(VideoCaptureResult result);
+    public delegate void CaptureObjectCreatedCallback(CameraPreviewCapture createdObject);
+    public delegate void FrameArrivedCallback(int frameLength);
 
     public sealed class CameraPreviewCapture
     {
 
 #pragma warning disable 067
-        public event FrameSampleAcquiredCallback FrameSampleAcquired;
+        public event FrameArrivedCallback OnFrameArrived;
 #pragma warning restore 067
 
         public bool IsStreaming {
@@ -24,33 +19,27 @@ namespace CameraPreview
             }
         }
 
-
-        public static void CreateAync(OnVideoCaptureResourceCreatedCallback onCreatedCallback)
+        public async static Task CreateAync(CaptureObjectCreatedCallback onCreatedCallback)
         {
             throw new NotImplementedException();
         }
 
-        public IEnumerable<Resolution> GetSupportedResolutions()
+        public async Task<bool> StartVideoModeAsync(bool IsCapturedHologram)
         {
             throw new NotImplementedException();
         }
 
-        public IEnumerable<float> GetSupportedFrameRatesForResolution(Resolution resolution)
+        public void CopyFrameToBuffer(byte[] buffer)
         {
             throw new NotImplementedException();
         }
 
-        public void StartVideoModeAsync(bool IsCapturedHologram)
+        public async Task<bool> StopVideoModeAsync()
         {
             throw new NotImplementedException();
         }
 
-        public void StopVideoModeAsync(OnVideoModeStoppedCallback onVideoModeStoppedCallback)
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Dispose()
+        public async Task Dispose()
         {
             throw new NotImplementedException();
         }

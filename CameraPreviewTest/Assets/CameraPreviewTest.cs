@@ -1,116 +1,80 @@
-﻿using System.Collections;
+﻿using CameraPreview;
+using HoloToolkit.Unity;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
-using CameraPreview;
-// using HoloLensCameraStream;
-using System;
-using System.Linq;
+using UnityEngine.UI;
 
 public class CameraPreviewTest : MonoBehaviour {
-
-    public TextMesh debugText;
-
+    // DLLで作ったクラス
     private CameraPreviewCapture  _cameraPreviewCapture;
-
+    // カメラプレビューをレンダリングするためのテクスチャ
     private Texture2D texture;
 
-    public event EventHandler OnTextureGenerated;
+    [SerializeField]
+    private List<RawImage> rawImageList;
+
     public Texture2D previewTexture {
         get { return texture; }
     }
-
+    
     private byte[] _latestImageBytes;
 
     private void Awake()
     {
-        CameraPreviewCapture.CreateAync(OnVideoCaptureInstanceCreated);
+        texture = new Texture2D(896, 504, TextureFormat.BGRA32, false);
+
+        foreach(var rawImage in rawImageList)
+        {
+            rawImage.texture = texture;
+        }
+        // ファクトリメソッドをコール
+        CameraPreviewCapture.CreateAync(CameraPreviewCapture_OnCreated);
     }
 
-    private void OnVideoCaptureInstanceCreated(CameraPreviewCapture captureObject)
+    /// <summary>
+    /// ファクトリメソッドを呼び出したときのコールバック
+    /// カメラプレビューを開始する
+    /// </summary>
+    /// <param name="captureObject"></param>
+    private async void CameraPreviewCapture_OnCreated(CameraPreviewCapture captureObject)
     {
-
         if(captureObject == null)
         {
-            return;
+            throw new Exception("Failed to create CameraPreviewCapture instance");
         }
         _cameraPreviewCapture = captureObject;
+        // 新しいフレームを取得したときのイベントハンドラを設定
+        _cameraPreviewCapture.OnFrameArrived += CameraPreviewCapture_OnFrameArrived;
+        // カメラプレビューの開始
+        var result = await _cameraPreviewCapture.StartVideoModeAsync(false);
 
-        var resolution = GetLowestResolution();
-        var frameRate = GetHighestFrameRate(resolution);
-        _cameraPreviewCapture.FrameSampleAcquired += OnFrameSampleAcquired;
-
-        CameraParameters cameraParams = new CameraParameters();
-        cameraParams.cameraResolutionHeight = resolution.height;
-        cameraParams.cameraResolutionWidth = resolution.width;
-        cameraParams.frameRate = Mathf.RoundToInt(frameRate);
-        cameraParams.pixelFormat = CapturePixelFormat.BGRA32;
-        cameraParams.rotateImage180Degrees = true;
-        cameraParams.enableHolograms = false;
-
-        UnityEngine.WSA.Application.InvokeOnAppThread(() =>
+        if(!result)
         {
-            debugText.text = "Created";
-            texture = new Texture2D(resolution.width, resolution.height, TextureFormat.BGRA32, false);
-            OnTextureGenerated?.Invoke(this, new EventArgs());
-        }, false);
-
-        _cameraPreviewCapture.StartVideoModeAsync(false);
+            throw new Exception("Failed to start camera preview");
+        }
     }
 
-    private void OnVideoModeStarted(VideoCaptureResult result)
-    {
-        UnityEngine.WSA.Application.InvokeOnAppThread(() =>
-        {
-            if (result.success == false)
-            {
-                debugText.text = "Start failed";
-                throw new Exception("VideoStart error");
-            }
-            debugText.text = "Capture start";
-
-        }, false);
-    }
-
-    int counter = 0;
-
-    private void OnFrameSampleAcquired(VideoCaptureSample sample)
+    /// <summary>
+    /// 新しいフレームを取得したときのイベントハンドラ
+    /// フレームのバイナリデータを取得しテクスチャに変換する
+    /// </summary>
+    /// <param name="frameLength"></param>
+    private void CameraPreviewCapture_OnFrameArrived(int frameLength)
     {
         
-        if (_latestImageBytes == null || _latestImageBytes.Length < sample.dataLength)
+        if (_latestImageBytes == null || _latestImageBytes.Length < frameLength)
         {
-            _latestImageBytes = new byte[sample.dataLength];
+            _latestImageBytes = new byte[frameLength];
         }
 
-        sample.CopyRawImageDataIntoBuffer(_latestImageBytes);
-        sample.Dispose();
+        _cameraPreviewCapture.CopyFrameToBuffer(_latestImageBytes);
         
 
         UnityEngine.WSA.Application.InvokeOnAppThread(() =>
         {
-            counter++;
-            debugText.text = "arrived: " + counter;
             texture.LoadRawTextureData(_latestImageBytes);
             texture.Apply();
         }, false);
-    }
-
-    public CameraPreview.Resolution GetLowestResolution()
-    {
-        if(_cameraPreviewCapture == null)
-        {
-            throw new Exception("GetLowestResolution: no captureobject instance");
-        }
-
-        return _cameraPreviewCapture.GetSupportedResolutions().OrderBy(r => r.width * r.height).FirstOrDefault();
-    }
-
-    public float GetHighestFrameRate(CameraPreview.Resolution resolution)
-    {
-        if (_cameraPreviewCapture == null)
-        {
-            throw new Exception("GetHighestFrameRate: no captureobject instance");
-        }
-
-        return _cameraPreviewCapture.GetSupportedFrameRatesForResolution(resolution).OrderByDescending(r => r).FirstOrDefault();
     }
 }

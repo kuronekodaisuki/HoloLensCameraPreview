@@ -1,7 +1,4 @@
 ﻿using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
@@ -15,14 +12,18 @@ using Windows.Media.MediaProperties;
 
 namespace CameraPreview
 {
-    public delegate void OnVideoCaptureResourceCreatedCallback(CameraPreviewCapture captureObject);
-    public delegate void OnVideoModeStartedCallback(VideoCaptureResult result);
-    public delegate void FrameSampleAcquiredCallback(VideoCaptureSample videoCaptureSample);
-    public delegate void OnVideoModeStoppedCallback(VideoCaptureResult result);
+    public delegate void CaptureObjectCreatedCallback(CameraPreviewCapture createdObject);
+    public delegate void FrameArrivedCallback(int frameLength);
 
     public sealed class CameraPreviewCapture
     {
-        public event FrameSampleAcquiredCallback FrameSampleAcquired;
+        public event FrameArrivedCallback OnFrameArrived;
+
+        private MediaFrameSourceInfo _frameSourceInfo;
+        private MediaCapture _mediaCapture;
+        private MediaFrameReader _frameReader;
+
+        private SoftwareBitmap _bitmap;
 
         public bool IsStreaming {
             get {
@@ -30,60 +31,66 @@ namespace CameraPreview
             }
         }
 
-        static readonly MediaStreamType STREAM_TYPE = MediaStreamType.VideoPreview;
-        static readonly Guid ROTATION_KEY = new Guid("C380465D-2271-428C-9B83-ECEA3B4A85C1");
-
-        // MediaFrameSourceGroup _frameSourceGroup;
-        MediaFrameSourceInfo _frameSourceInfo;
-        // DeviceInformation _deviceInfo;
-        MediaCapture _mediaCapture;
-        MediaFrameReader _frameReader;
-
-        CameraPreviewCapture(MediaFrameSourceInfo frameSourceInfo)
+        /// <summary>
+        /// コンストラクタ
+        /// </summary>
+        /// <param name="frameSourceInfo"></param>
+        private CameraPreviewCapture(MediaFrameSourceInfo frameSourceInfo)
         {
             _frameSourceInfo = frameSourceInfo;
         }
 
-        public static async void CreateAync(OnVideoCaptureResourceCreatedCallback onCreatedCallback)
+        /// <summary>
+        /// CameraPreviewCaptureのファクトリメソッド
+        /// </summary>
+        /// <param name="onCreatedCallback"></param>
+        public static async Task CreateAync(CaptureObjectCreatedCallback onCreatedCallback)
         {
+            // カメラプレビューが可能なRGBカメラを含むMediaFrameSourceGroupの一覧を取得する
             var allFrameSourceGroups = await MediaFrameSourceGroup.FindAllAsync();                                              //Returns IReadOnlyList<MediaFrameSourceGroup>
             var candidateFrameSourceGroups = allFrameSourceGroups.Where(group =>
                 group.SourceInfos.Any(sourceInfo => 
                     sourceInfo.MediaStreamType == MediaStreamType.VideoPreview && 
                     sourceInfo.SourceKind == MediaFrameSourceKind.Color
                 )
-            );   //Returns IEnumerable<MediaFrameSourceGroup>
-
-            var selectedFrameSourceGroup = candidateFrameSourceGroups.FirstOrDefault();                                         //Returns a single MediaFrameSourceGroup
-
+            );
+            // 取得した一覧から先頭のMediaFrameSourceGroupを取得する
+            var selectedFrameSourceGroup = candidateFrameSourceGroups.FirstOrDefault();
             if (selectedFrameSourceGroup == null)
             {
                 onCreatedCallback?.Invoke(null);
                 return;
             }
-
-            var selectedFrameSourceInfo = selectedFrameSourceGroup.SourceInfos.FirstOrDefault(); //Returns a MediaFrameSourceInfo
-
+            // カメラプレビューが可能なRGBカメラのMediaFrameSourceInfoを取得
+            var selectedFrameSourceInfo = selectedFrameSourceGroup.SourceInfos
+                .Where(sourceInfo => 
+                    sourceInfo.SourceKind == MediaFrameSourceKind.Color && 
+                    sourceInfo.MediaStreamType == MediaStreamType.VideoPreview)
+                .FirstOrDefault();
             if (selectedFrameSourceInfo == null)
             {
                 onCreatedCallback?.Invoke(null);
                 return;
             }
+            // MediaFrameSourceのDeviceInformationを取得する
+            var deviceInformation = selectedFrameSourceInfo.DeviceInformation;
 
-            var devices = await DeviceInformation.FindAllAsync(DeviceClass.VideoCapture);   //Returns DeviceCollection
-            var deviceInformation = devices.FirstOrDefault();                               //Returns a single DeviceInformation
+            // devices = await DeviceInformation.FindAllAsync(DeviceClass.VideoCapture);   //Returns DeviceCollection
+            // deviceInformation = devices.FirstOrDefault();                               //Returns a single DeviceInformation
 
             if (deviceInformation == null)
             {
                 onCreatedCallback?.Invoke(null);
                 return;
             }
-
+            // インスタンス化
             var videoCapture = new CameraPreviewCapture(selectedFrameSourceInfo);
-   
+            // MediaCaptureのインスタンスを作成
             var result = await videoCapture.CreateMediaCaptureAsync(selectedFrameSourceGroup, deviceInformation);
+
             if (result)
             {
+                // インスタンスをコールバックに渡す
                 onCreatedCallback?.Invoke(videoCapture);
             } else
             {
@@ -91,98 +98,70 @@ namespace CameraPreview
             }
         }
 
-        public IEnumerable<Resolution> GetSupportedResolutions()
-        {
-            List<Resolution> resolutions = new List<Resolution>();
-
-            var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(STREAM_TYPE).Select(x => x as VideoEncodingProperties); //Returns IEnumerable<VideoEncodingProperties>
-            foreach (var propertySet in allPropertySets)
-            {
-                resolutions.Add(new Resolution((int)propertySet.Width, (int)propertySet.Height));
-            }
-
-            return resolutions.AsReadOnly();
-        }
-
-        public IEnumerable<float> GetSupportedFrameRatesForResolution(Resolution resolution)
-        {
-            //Get all property sets that match the supported resolution
-            var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(STREAM_TYPE).Select((x) => x as VideoEncodingProperties)
-                .Where((x) =>
-                {
-                    return x != null &&
-                    x.Width == (uint)resolution.width &&
-                    x.Height == (uint)resolution.height;
-                }); //Returns IEnumerable<VideoEncodingProperties>
-
-            //Get all resolutions without duplicates.
-            var frameRatesDict = new Dictionary<float, bool>();
-            foreach (var propertySet in allPropertySets)
-            {
-                if (propertySet.FrameRate.Denominator != 0)
-                {
-                    float frameRate = (float)propertySet.FrameRate.Numerator / (float)propertySet.FrameRate.Denominator;
-                    frameRatesDict.Add(frameRate, true);
-                }
-            }
-
-            //Format resolutions as a list.
-            var frameRates = new List<float>();
-            foreach (KeyValuePair<float, bool> kvp in frameRatesDict)
-            {
-                frameRates.Add(kvp.Key);
-            }
-
-            return frameRates.AsReadOnly();
-        }
-
-        async Task<bool> CreateMediaCaptureAsync(MediaFrameSourceGroup _frameSourceGroup, DeviceInformation _deviceInfo)
+        /// <summary>
+        /// MediaCaptureインスタンスの作成
+        /// </summary>
+        /// <param name="frameSourceGroup"></param>
+        /// <param name="deviceInfo"></param>
+        /// <returns></returns>
+        private async Task<bool> CreateMediaCaptureAsync(MediaFrameSourceGroup frameSourceGroup, DeviceInformation deviceInfo)
         {
             if (_mediaCapture != null)
             {
-                throw new Exception("The MediaCapture object has already been created.");
+                return false;
             }
 
             _mediaCapture = new MediaCapture();
-
+            // 設定オブジェクトの作成、MediaFrameSourceGroupを指定している
+            // 取得した画像(フレーム)をバイナリで取得するため、
+            // フレームをSoftwareBitmapとして取得できるようMemoryPreferenceを設定する
             var settings = new MediaCaptureInitializationSettings()
             {
-                VideoDeviceId = _deviceInfo.Id,
-                SourceGroup = _frameSourceGroup,
-                MemoryPreference = MediaCaptureMemoryPreference.Cpu, //TODO: Should this be the other option, Auto? GPU is not an option.
+                VideoDeviceId = deviceInfo.Id,
+                SourceGroup = frameSourceGroup,
+                MemoryPreference = MediaCaptureMemoryPreference.Cpu,
                 StreamingCaptureMode = StreamingCaptureMode.Video
             };
-
+            // MediaCaptureの初期化
             try
             {
                 await _mediaCapture.InitializeAsync(settings);
                 _mediaCapture.VideoDeviceController.Focus.TrySetAuto(true);
                 return true;
-            } catch(Exception ex)
+            } catch(Exception)
             {
+                // 何かしらの例外が発生
                 _mediaCapture.Dispose();
                 _mediaCapture = null;
                 return false;
             }
         }
 
-        public async void StartVideoModeAsync(bool IsCapturedHologram)
+        /// <summary>
+        /// カメラプレビューを開始する
+        /// </summary>
+        /// <param name="IsCapturedHologram"></param>
+        public async Task<bool> StartVideoModeAsync(bool IsCapturedHologram)
         {
-            var mediaFrameSource = _mediaCapture.FrameSources[_frameSourceInfo.Id]; //Returns a MediaFrameSource
+            // MediaFrameSourceを取得する
+            // MediaFrameSourceはMediaFrameSourceGroupから直接取得することはできず
+            // MediaCapture経由で取得する必要がある
+            var mediaFrameSource = _mediaCapture.FrameSources[_frameSourceInfo.Id];
 
             if (mediaFrameSource == null)
             {
-                return;
+                return false;
             }
-
+            // Unityのテクスチャに変換できるフォーマットを指定
             var pixelFormat= MediaEncodingSubtypes.Bgra8;
-
+            // MediaFrameReaderの作成
             _frameReader = await _mediaCapture.CreateFrameReaderAsync(mediaFrameSource, pixelFormat);
-
+            // フレームを取得したときのイベントハンドラ
             _frameReader.FrameArrived += HandleFrameArrived;
-
+            // フレームの取得を開始する
             var result = await _frameReader.StartAsync();
-
+            // デバイスがサポートするビデオフォーマットの一覧を取得する
+            // ここではHoloLensがサポートする896x504 30fpsに絞って取得している
             var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(MediaStreamType.VideoPreview)
                 .Select(x => x as VideoEncodingProperties)
                 .Where(x =>
@@ -194,103 +173,97 @@ namespace CameraPreview
 
                     return x.Width == 896 && x.Height == 504 && (int)Math.Round(frameRate) == 30;
                 });
-
+            // 取得したフォーマット情報を使ってキャプチャするフレームの解像度とFPSを設定する
             VideoEncodingProperties properties = allPropertySets.FirstOrDefault();
-
-            //	gr: taken from here https://forums.hololens.com/discussion/2009/mixedrealitycapture
-            IVideoEffectDefinition ved = new VideoMRCSettings(IsCapturedHologram, false, 0, 0.0f);
+            await _mediaCapture.VideoDeviceController.SetMediaStreamPropertiesAsync(MediaStreamType.VideoPreview, properties);
+            // Mixed Reality Captureの設定
+            IVideoEffectDefinition ved = new MixedRealityCaptureSetting(IsCapturedHologram, false, 0, IsCapturedHologram ? 0.9f : 0.0f);
             await _mediaCapture.AddVideoEffectAsync(ved, MediaStreamType.VideoPreview);
-            await _mediaCapture.VideoDeviceController.SetMediaStreamPropertiesAsync(STREAM_TYPE, properties);
 
+            return true;
         }
 
-        public async void StopVideoModeAsync(OnVideoModeStoppedCallback onVideoModeStoppedCallback)
+        /// <summary>
+        /// SoftwareBitmapとして保持しているフレームを引数のバイナリバッファに渡す
+        /// </summary>
+        /// <param name="buffer"></param>
+        public void CopyFrameToBuffer(byte[] buffer)
+        {
+            if(buffer == null)
+            {
+                throw new ArgumentException("buffer is null");
+            }
+
+            if(buffer.Length < 4 * _bitmap.PixelWidth * _bitmap.PixelHeight)
+            {
+                throw new IndexOutOfRangeException("buffer is not big enough");
+            }
+
+            if(_bitmap != null)
+            {
+                _bitmap.CopyToBuffer(buffer.AsBuffer());
+                _bitmap.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// カメラプレビューを停止する
+        /// </summary>
+        /// <param name="onVideoModeStoppedCallback"></param>
+        public async Task<bool> StopVideoModeAsync()
         {
             if (IsStreaming == false)
             {
-                onVideoModeStoppedCallback?.Invoke(new VideoCaptureResult(1, ResultType.InappropriateState, false));
-                return;
+                // すでにプレビューを停止している場合は何もしない
+                return false;
             }
 
             _frameReader.FrameArrived -= HandleFrameArrived;
             await _frameReader.StopAsync();
             _frameReader.Dispose();
             _frameReader = null;
-
-            onVideoModeStoppedCallback?.Invoke(new VideoCaptureResult(0, ResultType.Success, true));
+            return true;
         }
 
-        public void Dispose()
+        /// <summary>
+        /// リソースの解放
+        /// </summary>
+        public async Task Dispose()
         {
             if (IsStreaming)
             {
-                throw new Exception("Please make sure StopVideoModeAsync() is called before displosing the VideoCapture object.");
+                await StopVideoModeAsync();
             }
-
             _mediaCapture?.Dispose();
         }
 
-        void HandleFrameArrived(MediaFrameReader sender, MediaFrameArrivedEventArgs args)
+        /// <summary>
+        /// 新しいフレームを取得したときのハンドラ
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="args"></param>
+        private void HandleFrameArrived(MediaFrameReader sender, MediaFrameArrivedEventArgs args)
         {
-            if (FrameSampleAcquired == null)
+            // プラグイン外からイベントハンドラが設定されていない場合は何もしない
+            if (OnFrameArrived == null)
             {
                 return;
             }
-
-            using (var frameReference = _frameReader.TryAcquireLatestFrame()) //frameReference is a MediaFrameReference
+            // 最新のフレームを取得
+            using (var frame = _frameReader.TryAcquireLatestFrame())
             {
-                if (frameReference != null)
+                if (frame != null)
                 {
-                    var sample = new VideoCaptureSample(frameReference);
-                    FrameSampleAcquired?.Invoke(sample);
+                    // SoftwareBitmapとして保持し、サブスクライバにはBitmapのサイズを通知
+                    _bitmap = frame.VideoMediaFrame.SoftwareBitmap; 
+                    OnFrameArrived?.Invoke(4 * _bitmap.PixelHeight * _bitmap.PixelWidth);
                 }
             }
         }
 
-        VideoEncodingProperties GetVideoEncodingPropertiesForCameraParams(CameraParameters cameraParams)
-        {
-            var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(STREAM_TYPE).Select((x) => x as VideoEncodingProperties)
-                .Where((x) =>
-                {
-                    if (x == null) return false;
-                    if (x.FrameRate.Denominator == 0) return false;
-
-                    double calculatedFrameRate = (double)x.FrameRate.Numerator / (double)x.FrameRate.Denominator;
-
-                    return
-                    x.Width == (uint)cameraParams.cameraResolutionWidth &&
-                    x.Height == (uint)cameraParams.cameraResolutionHeight &&
-                    (int)Math.Round(calculatedFrameRate) == cameraParams.frameRate;
-                }); //Returns IEnumerable<VideoEncodingProperties>
-
-            if (allPropertySets.Count() == 0)
-            {
-                throw new Exception("Could not find an encoding property set that matches the given camera parameters.");
-            }
-
-            var chosenPropertySet = allPropertySets.FirstOrDefault();
-            return chosenPropertySet;
-        }
-
-        static string ConvertCapturePixelFormatToMediaEncodingSubtype(CapturePixelFormat format)
-        {
-            switch (format)
-            {
-                case CapturePixelFormat.BGRA32:
-                    return MediaEncodingSubtypes.Bgra8;
-                case CapturePixelFormat.NV12:
-                    return MediaEncodingSubtypes.Nv12;
-                case CapturePixelFormat.JPEG:
-                    return MediaEncodingSubtypes.Jpeg;
-                case CapturePixelFormat.PNG:
-                    return MediaEncodingSubtypes.Png;
-                default:
-                    return MediaEncodingSubtypes.Bgra8;
-            }
-        }
     }
 
-    public class VideoMRCSettings : IVideoEffectDefinition
+    public class MixedRealityCaptureSetting : IVideoEffectDefinition
     {
         public string ActivatableClassId {
             get {
@@ -302,13 +275,13 @@ namespace CameraPreview
             get; private set;
         }
 
-        public VideoMRCSettings(bool HologramCompositionEnabled, bool VideoStabilizationEnabled, int VideoStabilizationBufferLength, float GlobalOpacityCoefficient)
+        public MixedRealityCaptureSetting(bool HologramCompositionEnabled, bool VideoStabilizationEnabled, int VideoStabilizationBufferLength, float GlobalOpacityCoefficient)
         {
             Properties = (IPropertySet)new PropertySet();
-            Properties.Add("HologramCompositionEnabled", HologramCompositionEnabled);
-            Properties.Add("VideoStabilizationEnabled", VideoStabilizationEnabled);
-            Properties.Add("VideoStabilizationBufferLength", VideoStabilizationBufferLength);
-            Properties.Add("GlobalOpacityCoefficient", GlobalOpacityCoefficient);
+            Properties.Add("HologramCompositionEnabled", HologramCompositionEnabled);           // Hologramをキャプチャするかどうか
+            Properties.Add("VideoStabilizationEnabled", VideoStabilizationEnabled);             // 手ブレ補正を行うかどうか
+            Properties.Add("VideoStabilizationBufferLength", VideoStabilizationBufferLength);   // 手ブレ補正に使用するバッファ
+            Properties.Add("GlobalOpacityCoefficient", GlobalOpacityCoefficient);               // キャプチャしたHologramの透過度
         }
     }
 }

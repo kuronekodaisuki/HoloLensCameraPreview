@@ -41,14 +41,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="CameraParameters.cs" />
     <Compile Include="CameraPreviewCapture.cs" />
-    <Compile Include="CapturePixelFormat.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Resolution.cs" />
-    <Compile Include="ResultType.cs" />
-    <Compile Include="VideoCaptureResult.cs" />
-    <Compile Include="VideoCaptureSample.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PostBuildEvent>copy "$(TargetDir)$(TargetFileName)" "$(SolutionDir)..\CameraPreviewTest\Assets\Plugins\$(TargetFileName)"</PostBuildEvent>
+  </PropertyGroup>
 </Project>

@@ -518,7 +518,7 @@ PlayerSettings:
   metroCertificatePassword: 
   metroCertificateSubject: DefaultCompany
   metroCertificateIssuer: DefaultCompany
-  metroCertificateNotAfter: 80acfeadad3ed401
+  metroCertificateNotAfter: 00e3a2bdf73ed401
   metroApplicationDescription: CameraPreviewTest
   wsaImages: {}
   metroTileShortName: 

@@ -7,9 +7,9 @@
 # Default behavior is to never overwrite files
 CameraPreviewTest.sln: modified
 CameraPreviewTest\App.cs: 6D321848F968C5B863328630E99EA49F
-CameraPreviewTest\CameraPreviewTest.csproj: AFBFCC98BD236898C97C73D7B37CABD9
+CameraPreviewTest\CameraPreviewTest.csproj: modified
 CameraPreviewTest\CameraPreviewTest.csproj.user: modified
-CameraPreviewTest\Package.appxmanifest: 1985BE55997D62601B264CD16D8EB3CF
+CameraPreviewTest\Package.appxmanifest: modified
 CameraPreviewTest\project.json: 1D02BC64BAC0D041019673A1C4C51737
 CameraPreviewTest\Assets\SplashScreen.scale-200.png: 60618416282ED104FD1473935716045D
 CameraPreviewTest\Assets\Square150x150Logo.scale-200.png: E02834B4A5DFB97FF8E212C1CACBB084
@@ -18,6 +18,6 @@ CameraPreviewTest\Assets\Square44x44Logo.targetsize-24_altform-unplated.png: 156
 CameraPreviewTest\Assets\StoreLogo.png: 90BD194CA4A7CFFF3E8B8222229857FB
 CameraPreviewTest\Assets\Wide310x150Logo.scale-200.png: C96846A80DF667F87355569CD816192D
 CameraPreviewTest\Properties\AssemblyInfo.cs: 5CE2520ADB27F24C729CA2E15E2F0234
-CameraPreviewTest\Properties\Default.rd.xml: 72EB282657164E79A1C42F6240984826
+CameraPreviewTest\Properties\Default.rd.xml: modified
 GeneratedProjects\UWP\Assembly-CSharp\project.json: 4FCF72A4D5EDB37E24C206A7BCFE7AF1
 GeneratedProjects\UWP\Assembly-CSharp-firstpass\project.json: 4FCF72A4D5EDB37E24C206A7BCFE7AF1
